@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import chatRoutes from "./modules/chat/chat.route.js";
 
 const app = express();
 
@@ -15,4 +16,7 @@ app.get("/", (req, res) => {
     message: "Server is running",
   });
 });
+
+//chat session routes
+app.use("/api/chat", chatRoutes);
 export default app;
