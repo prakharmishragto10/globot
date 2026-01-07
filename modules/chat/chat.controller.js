@@ -1,5 +1,7 @@
 import ChatSession from "./chat.model.js";
 import ChatMessage from "./chatMessage.model.js";
+import { detectIntent } from "./intentDetector.js";
+import IntentLog from "./intentLog.model.js";
 
 // Start a new chat session
 
