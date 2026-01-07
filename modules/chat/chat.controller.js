@@ -87,18 +87,60 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    // Store user message
+    //1:=> Store user message
     await ChatMessage.create({
       sessionId,
       sender: "user",
       message,
     });
 
-    //static bot reply;
-    const botReply =
-      "Got it , i will connect you with our top rated counsellor";
+    // 2️:=> Detect intent
+    const intent = detectIntent(message);
 
-    //store bot's reply
+    // 3️:=> Log intent (required by spec)
+    await IntentLog.create({
+      sessionId,
+      intent,
+      confidence: 1.0, // rule-based confidence
+    });
+
+    // 4️:=> Generate reply based on intent
+    let botReply;
+
+    switch (intent) {
+      case "COUNTRY_SELECTION":
+        botReply = "Great choice  Which course are you planning to study?";
+        break;
+
+      case "COURSE_SELECTION":
+        botReply = "Nice! What is your highest qualification?";
+        break;
+
+      case "FEES_QUERY":
+        botReply =
+          "Fees depend on country and university. Which country are you interested in?";
+        break;
+
+      case "VISA_QUERY":
+        botReply =
+          "Visa rules vary by country. Which country are you planning to apply to?";
+        break;
+
+      case "TEST_REQUIREMENT":
+        botReply =
+          "Do you already have an English test score like IELTS or PTE?";
+        break;
+
+      case "COUNSELOR_REQUEST":
+        botReply = "Sure ,I’ll connect you with one of our counselors shortly.";
+        break;
+
+      default:
+        botReply =
+          "Got it! Could you please tell me which country you are interested in?";
+    }
+
+    // 5️:=> Store bot reply
     await ChatMessage.create({
       sessionId,
       sender: "bot",
@@ -107,6 +149,7 @@ export const sendMessage = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      intent,
       reply: botReply,
     });
   } catch (error) {
