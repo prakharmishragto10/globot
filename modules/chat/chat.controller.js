@@ -1,4 +1,5 @@
 import ChatSession from "./chat.model.js";
+import ChatMessage from "./chatMessage.model.js";
 
 // Start a new chat session
 
@@ -65,6 +66,52 @@ export const endChat = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to end the chat session",
+    });
+  }
+};
+
+/**
+ * Send a message in a chat session
+ * POST /api/chat/message
+ */
+export const sendMessage = async (req, res) => {
+  try {
+    const { sessionId, message } = req.body;
+
+    if (!sessionId || !message) {
+      return res.status(400).json({
+        success: false,
+        message: "sessionId and message are required",
+      });
+    }
+
+    // Store user message
+    await ChatMessage.create({
+      sessionId,
+      sender: "user",
+      message,
+    });
+
+    //static bot reply;
+    const botReply =
+      "Got it , i will connect you with our top rated counsellor";
+
+    //store bot's reply
+    await ChatMessage.create({
+      sessionId,
+      sender: "bot",
+      message: botReply,
+    });
+
+    return res.status(200).json({
+      success: true,
+      reply: botReply,
+    });
+  } catch (error) {
+    console.error("Send message error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to process message",
     });
   }
 };
