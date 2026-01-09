@@ -2,6 +2,12 @@ import ChatSession from "./chat.model.js";
 import ChatMessage from "./chatMessage.model.js";
 import { detectIntent } from "./intentDetector.js";
 import IntentLog from "./intentLog.model.js";
+import {
+  getOrCreateLead,
+  updateLeadField,
+  isLeadQualified,
+} from "../leads/lead.service.js";
+import { intentToLeadFieldMap } from "./intentToLeadMap.js";
 
 // Start a new chat session
 
@@ -104,7 +110,16 @@ export const sendMessage = async (req, res) => {
       confidence: 1.0, // rule-based confidence
     });
 
-    // 4️:=> Generate reply based on intent
+    // 4️:=> creating  a lead
+    const lead = await getOrCreateLead(sessionId);
+
+    // 5:=> fill lead fields if we have any matching intent
+    const leadField = intentToLeadFieldMap[intent];
+    if (leadField && !lead[leadField]) {
+      await updateLeadField(sessionId, leadField, message);
+    }
+
+    // 6:=> decide the bots reply
     let botReply;
 
     switch (intent) {
@@ -140,13 +155,20 @@ export const sendMessage = async (req, res) => {
           "Got it! Could you please tell me which country you are interested in?";
     }
 
-    // 5️:=> Store bot reply
+    // 7:=> mark lead as qualified
+    if (isLeadQualified(lead)) {
+      lead.status = "qualified";
+      await lead.save();
+    }
+
+    // 8️:=> Store bot reply
     await ChatMessage.create({
       sessionId,
       sender: "bot",
       message: botReply,
     });
 
+    // 9:=> return the bots messages;
     return res.status(200).json({
       success: true,
       intent,
