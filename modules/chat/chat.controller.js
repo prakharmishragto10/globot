@@ -8,7 +8,9 @@ import {
   isLeadQualified,
 } from "../leads/lead.service.js";
 import { intentToLeadFieldMap } from "./intentToLeadMap.js";
-
+import { createEscalation } from "../escalation/escalation.service.js";
+import { findBestKBMatch } from "../knowledgeBase/knowledgeBase.service.js";
+import { getGeminiResponse } from "../ai/gemini.service.js";
 // Start a new chat session
 
 export const startChat = async (req, res) => {
@@ -101,7 +103,7 @@ export const sendMessage = async (req, res) => {
     });
 
     // 2️:=> Detect intent
-    const intent = detectIntent(message);
+    const { intent, confidence } = detectIntent(message);
 
     // 3️:=> Log intent (required by spec)
     await IntentLog.create({
@@ -128,7 +130,9 @@ export const sendMessage = async (req, res) => {
         break;
 
       case "COURSE_SELECTION":
-        botReply = "Nice! What is your highest qualification?";
+        botReply =
+          "Do you already have an English test score like IELTS or PTE?";
+
         break;
 
       case "FEES_QUERY":
@@ -147,18 +151,72 @@ export const sendMessage = async (req, res) => {
         break;
 
       case "COUNSELOR_REQUEST":
-        botReply = "Sure ,I’ll connect you with one of our counselors shortly.";
+        botReply = "Sure ,I’ll connect you with one of our counselor now.";
+        //creating an Escalation if the user ask for it
+        await createEscalation({
+          sessionId,
+          leadId: lead,
+          reason: "COUNSELOR_REQUEST",
+        });
+
+        lead.status = "qualified"; //make this status as qualifed
+        await lead.save();
         break;
 
       default:
-        botReply =
-          "Got it! Could you please tell me which country you are interested in?";
+        const kbAnswer = await findBestKBMatch({
+          intent,
+          message,
+          lead,
+        });
+
+        if (kbAnswer) {
+          botReply = kbAnswer.answer;
+          break;
+        }
+
+        // 2️⃣ Use Gemini ONLY if KB has no answer
+        botReply = await getGeminiResponse({
+          userMessage: message,
+          kbContext: null,
+          leadContext: {
+            country: lead.intendedCountry,
+            course: lead.intendedCourse,
+            qualification: lead.highestQualification,
+          },
+        });
+
+        // 3️⃣ Safety net: escalate if AI unsure
+        if (!botReply || botReply.length < 25) {
+          await createEscalation({
+            sessionId,
+            leadId: lead._id,
+            reason: "AI_LOW_CONFIDENCE",
+          });
+
+          botReply =
+            "I want to make sure you get accurate guidance. Let me connect you with a counselor.";
+        }
+
+        break;
     }
 
     // 7:=> mark lead as qualified
     if (isLeadQualified(lead)) {
       lead.status = "qualified";
       await lead.save();
+    }
+
+    //prevent spam escallation
+    if (isLeadQualified(lead) && lead.status !== "qualified") {
+      lead.status = "qualified";
+      await lead.save();
+
+      await createEscalation({
+        sessionId,
+        leadId: lead._id,
+        reason: "QUALIFIED_LEAD",
+      });
     }
 
     // 8️:=> Store bot reply
