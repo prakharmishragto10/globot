@@ -11,6 +11,8 @@ import { intentToLeadFieldMap } from "./intentToLeadMap.js";
 import { createEscalation } from "../escalation/escalation.service.js";
 import { findBestKBMatch } from "../knowledgeBase/knowledgeBase.service.js";
 import { getGeminiResponse } from "../ai/gemini.service.js";
+import { extractName, extractEmail } from "../leads/leadCapture.util.js";
+
 // Start a new chat session
 
 export const startChat = async (req, res) => {
@@ -23,7 +25,7 @@ export const startChat = async (req, res) => {
       success: true,
       sessionId: session._id,
       message:
-        "Hi I’m GlobeBot. Let me help you start your study abroad journey.",
+        "Hi 👋 I’m GlobeBot, your overseas education counselor. Before we begin, may I know your name?",
     });
   } catch (error) {
     console.error("CHAT DIDN'T START:", error);
@@ -95,72 +97,110 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    //1:=> Store user message
+    // 1️ Store user message
     await ChatMessage.create({
       sessionId,
       sender: "user",
       message,
     });
 
-    // 2️:=> Detect intent
+    // 2️ Get or create lead
+    const lead = await getOrCreateLead(sessionId);
+
+    let botReply;
+
+    // ===============================
+    //  HYBRID LEAD CAPTURE (BLOCKING)
+    // ===============================
+
+    // NAME
+    if (lead.captureStage === "NEW") {
+      const name = extractName(message);
+
+      if (name) {
+        await updateLeadField(sessionId, "fullName", name);
+        lead.captureStage = "ASKED_EMAIL";
+        await lead.save();
+
+        botReply = `Thanks ${name}! 😊 Could you also share your email so I can send you accurate guidance later?`;
+      } else {
+        botReply = "May I know your name before we continue?";
+      }
+
+      await ChatMessage.create({
+        sessionId,
+        sender: "bot",
+        message: botReply,
+      });
+
+      return res.json({ success: true, reply: botReply });
+    }
+
+    // EMAIL
+    if (lead.captureStage === "ASKED_EMAIL") {
+      const email = extractEmail(message);
+
+      if (email) {
+        await updateLeadField(sessionId, "email", email);
+        lead.captureStage = "PROFILE_BUILD";
+        await lead.save();
+
+        botReply =
+          "Perfect 👍 Now tell me — which country are you planning to study in?";
+      } else {
+        botReply =
+          "That doesn’t look like a valid email. Could you please re-enter it?";
+      }
+
+      await ChatMessage.create({
+        sessionId,
+        sender: "bot",
+        message: botReply,
+      });
+
+      return res.json({ success: true, reply: botReply });
+    }
+
+    // ===============================
+    //  NORMAL CHAT FLOW STARTS HERE
+    // ===============================
+
+    // 3️ Detect intent
     const { intent, confidence } = detectIntent(message);
 
-    // 3️:=> Log intent (required by spec)
     await IntentLog.create({
       sessionId,
       intent,
-      confidence: 1.0, // rule-based confidence
+      confidence,
     });
 
-    // 4️:=> creating  a lead
-    const lead = await getOrCreateLead(sessionId);
-
-    // 5:=> fill lead fields if we have any matching intent
+    // 4️ Update lead fields from intent
     const leadField = intentToLeadFieldMap[intent];
     if (leadField && !lead[leadField]) {
       await updateLeadField(sessionId, leadField, message);
     }
 
-    // 6:=> decide the bots reply
-    let botReply;
-
+    // 5️ Decide reply
     switch (intent) {
       case "COUNTRY_SELECTION":
-        botReply = "Great choice  Which course are you planning to study?";
+        botReply = "Great choice! Which course are you planning to study?";
         break;
 
       case "COURSE_SELECTION":
         botReply =
-          "Do you already have an English test score like IELTS or PTE?";
-
-        break;
-
-      case "FEES_QUERY":
-        botReply =
-          "Fees depend on country and university. Which country are you interested in?";
-        break;
-
-      case "VISA_QUERY":
-        botReply =
-          "Visa rules vary by country. Which country are you planning to apply to?";
-        break;
-
-      case "TEST_REQUIREMENT":
-        botReply =
-          "Do you already have an English test score like IELTS or PTE?";
+          "Nice 👍 Do you already have an English test score like IELTS or PTE?";
         break;
 
       case "COUNSELOR_REQUEST":
-        botReply = "Sure ,I’ll connect you with one of our counselor now.";
-        //creating an Escalation if the user ask for it
+        botReply =
+          "Sure! I’ll connect you with one of our expert counselors shortly.";
+
         await createEscalation({
           sessionId,
-          leadId: lead,
+          leadId: lead._id,
           reason: "COUNSELOR_REQUEST",
         });
 
-        lead.status = "qualified"; //make this status as qualifed
-        await lead.save();
         break;
 
       default:
@@ -172,62 +212,45 @@ export const sendMessage = async (req, res) => {
 
         if (kbAnswer) {
           botReply = kbAnswer.answer;
-          break;
+        } else {
+          botReply = await getGeminiResponse({
+            userMessage: message,
+            kbContext: null,
+            leadContext: {
+              country: lead.intendedCountry,
+              course: lead.intendedCourse,
+              qualification: lead.highestQualification,
+            },
+          });
         }
 
-        // 2️⃣ Use Gemini ONLY if KB has no answer
-        botReply = await getGeminiResponse({
-          userMessage: message,
-          kbContext: null,
-          leadContext: {
-            country: lead.intendedCountry,
-            course: lead.intendedCourse,
-            qualification: lead.highestQualification,
-          },
-        });
-
-        // 3️⃣ Safety net: escalate if AI unsure
         if (!botReply || botReply.length < 25) {
           await createEscalation({
             sessionId,
             leadId: lead._id,
-            reason: "AI_LOW_CONFIDENCE",
+            reason: "LOW_CONFIDENCE",
           });
 
           botReply =
             "I want to make sure you get accurate guidance. Let me connect you with a counselor.";
         }
-
-        break;
     }
 
-    // 7:=> mark lead as qualified
+    // 6️ Qualification check
     if (isLeadQualified(lead)) {
       lead.status = "qualified";
+      lead.captureStage = "QUALIFIED";
       await lead.save();
     }
 
-    //prevent spam escallation
-    if (isLeadQualified(lead) && lead.status !== "qualified") {
-      lead.status = "qualified";
-      await lead.save();
-
-      await createEscalation({
-        sessionId,
-        leadId: lead._id,
-        reason: "QUALIFIED_LEAD",
-      });
-    }
-
-    // 8️:=> Store bot reply
+    // 7️ Store bot reply
     await ChatMessage.create({
       sessionId,
       sender: "bot",
       message: botReply,
     });
 
-    // 9:=> return the bots messages;
-    return res.status(200).json({
+    return res.json({
       success: true,
       intent,
       reply: botReply,
