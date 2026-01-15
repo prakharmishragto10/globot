@@ -1,14 +1,22 @@
 import KnowledgeBase from "./knowledgeBase.model.js";
+import { intentToKBCategory } from "./intentToKBCategory.js";
 
 export const findBestKBMatch = async ({ intent, message, lead }) => {
-  const keywordTokens = message.toLowerCase().split(" ");
+  const keywords = message.toLowerCase().split(/\s+/);
+  const category = intentToKBCategory[intent];
 
-  return KnowledgeBase.findOne({
+  const query = {
     isActive: true,
+
+    ...(category && { category }),
+
     ...(lead?.intendedCountry && { country: lead.intendedCountry }),
+
     $or: [
-      { category: intent.replace("_QUERY", "") },
-      { keywords: { $in: keywordTokens } },
+      { keywords: { $in: keywords } },
+      { question: { $regex: message, $options: "i" } },
     ],
-  }).sort({ priority: -1 });
+  };
+
+  return KnowledgeBase.findOne(query).sort({ priority: -1 });
 };

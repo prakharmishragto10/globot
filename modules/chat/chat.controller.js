@@ -146,7 +146,7 @@ export const sendMessage = async (req, res) => {
         await lead.save();
 
         botReply =
-          "Perfect 👍 Now tell me — which country are you planning to study in?";
+          "Perfect 👍 Now tell me  which country are you planning to study in?";
       } else {
         botReply =
           "That doesn’t look like a valid email. Could you please re-enter it?";
@@ -203,26 +203,29 @@ export const sendMessage = async (req, res) => {
 
         break;
 
-      default:
+      default: {
         const kbAnswer = await findBestKBMatch({
           intent,
           message,
           lead,
         });
 
-        if (kbAnswer) {
+        //  HARD STOP: KB ALWAYS WINS
+        if (kbAnswer?.answer) {
           botReply = kbAnswer.answer;
-        } else {
-          botReply = await getGeminiResponse({
-            userMessage: message,
-            kbContext: null,
-            leadContext: {
-              country: lead.intendedCountry,
-              course: lead.intendedCourse,
-              qualification: lead.highestQualification,
-            },
-          });
+          break;
         }
+
+        //  AI ONLY WHEN KB FAILS
+        botReply = await getGeminiResponse({
+          userMessage: message,
+          kbContext: null,
+          leadContext: {
+            country: lead.intendedCountry,
+            course: lead.intendedCourse,
+            qualification: lead.highestQualification,
+          },
+        });
 
         if (!botReply || botReply.length < 25) {
           await createEscalation({
@@ -232,8 +235,11 @@ export const sendMessage = async (req, res) => {
           });
 
           botReply =
-            "I want to make sure you get accurate guidance. Let me connect you with a counselor.";
+            "To ensure you get the most accurate guidance, I’ll connect you with a Globetrek Overseas counselor.";
         }
+
+        break;
+      }
     }
 
     // 6️ Qualification check

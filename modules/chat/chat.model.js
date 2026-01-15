@@ -14,6 +14,13 @@ const chatSessionSchema = new mongoose.Schema(
       default: "web",
     },
 
+    // NEW: tracks conversation flow
+    stage: {
+      type: String,
+      enum: ["ASK_NAME", "ASK_EMAIL", "CHAT"],
+      default: "ASK_NAME",
+    },
+
     endedAt: {
       type: Date,
       default: null,
