@@ -25,7 +25,7 @@ export const startChat = async (req, res) => {
       success: true,
       sessionId: session._id,
       message:
-        "Hi 👋 I’m GlobeBot, your overseas education counselor. Before we begin, may I know your name?",
+        "Hi 👋 I’m GlobeGuide, your overseas education counselor. Before we begin, may I know your name?",
     });
   } catch (error) {
     console.error("CHAT DIDN'T START:", error);
