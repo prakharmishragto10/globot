@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import chatRoutes from "./modules/chat/chat.route.js";
 import adminRoutes from "./modules/admin/admin.routes.js";
+import studentRoutes from "./modules/user/student/student.route.js";
 
 const app = express();
 
@@ -23,6 +24,8 @@ app.use("/api/chat", chatRoutes);
 
 //admin routes
 app.use("/api/admin", adminRoutes);
+
+app.use("/api/student", studentRoutes);
 export default app;
 
 //payment routes;

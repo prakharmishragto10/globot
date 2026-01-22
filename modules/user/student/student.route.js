@@ -1,2 +1,10 @@
+// student.routes.js
 import express from "express";
-import { studentLogin, studentSignup } from "./student.controller";
+import { studentSignup, studentLogin } from "./student.controller.js";
+
+const router = express.Router();
+
+router.post("/signup", studentSignup);
+router.post("/login", studentLogin);
+
+export default router;
